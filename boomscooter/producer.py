@@ -25,6 +25,7 @@ AckMsg = struct.Struct('!IIQQ')
 
 TEST_PAYLOAD = b'hello world!' * 1
 TEST_PAYLOAD = b'!' * 16384
+#TEST_PAYLOAD = b'!' * 64
 #TEST_PAYLOAD = b''
 
 TEST_MSG = MsgHeader.pack(MsgHeader.size + len(TEST_PAYLOAD), 0, 0) + TEST_PAYLOAD

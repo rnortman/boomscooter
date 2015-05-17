@@ -25,8 +25,9 @@ import sys
 
 import logging
 
-MsgHeader = struct.Struct('!IIQ')
-AckMsg = struct.Struct('!IIQQ')
+MsgHeader = struct.Struct('!IIQ') # (size, flags, seqno)
+AckMsg = struct.Struct('!IIQQ')   # (size, flags, refno, seqno)
+IdxEntry = struct.Struct('!QQI')  # (seqno, offset, size)
 
 class Log:
     def __init__(self, name, updated_cb=lambda: None):
@@ -41,7 +42,8 @@ class Log:
     def open(self, filename='log.boomscooter'):
         #self.logfile = yield from aiofiles.open(
         #    filename, 'w+b', buffering=-1, executor=self.executor)
-        self.logfile = io.open(filename, 'w+b', buffering=-1)
+        self.logfile = io.open(filename, 'w+b', buffering=0)
+        self.idxfile = io.open(filename+'_idx', 'w+b', buffering=0)
         return
 
     @asyncio.coroutine
@@ -53,8 +55,10 @@ class Log:
         #    MsgHeader.pack(len(msg) + MsgHeader.size, 0, self.seqno) + msg)
         self.logfile.write(
             MsgHeader.pack(size, 0, seqno) + msg)
+        self.idxfile.write(
+            IdxEntry.pack(seqno, offset, size))
         self.head = (seqno, offset+size) # Atomic replacement
-        self.updated_cb()
+        #self.updated_cb()
         return seqno
 
 MONITOR_PERIOD = 2
@@ -216,8 +220,8 @@ def main():
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
     log = Log('scootr')
-    feed_server = FeedServer(log)
-    log.updated_cb = feed_server.log_updated_cb
+    #feed_server = FeedServer(log)
+    #log.updated_cb = feed_server.log_updated_cb
     #loop.run_until_complete(log.open('/dev/null'))
     loop.run_until_complete(log.open())
     coro = asyncio.start_server(
