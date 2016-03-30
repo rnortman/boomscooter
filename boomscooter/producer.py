@@ -24,7 +24,9 @@ MsgHeader = struct.Struct('!IIQ')
 AckMsg = struct.Struct('!IIQQ')
 
 TEST_PAYLOAD = b'hello world!' * 1
-TEST_PAYLOAD = b'!' * 16384
+TEST_PAYLOAD = b'!' * 1024 * 1024 * 2
+TEST_PAYLOAD = b'!' * 65536
+#TEST_PAYLOAD = b'!' * 16384
 #TEST_PAYLOAD = b'!' * 64
 #TEST_PAYLOAD = b''
 
@@ -64,12 +66,22 @@ class Producer:
         rate = NUM_MSGS / duration
         print('Done!', NUM_MSGS, duration, rate)
 
+    @classmethod
+    @asyncio.coroutine
+    def connect_and_run_to_completion(cls, *args, **kws):
+        reader, writer = yield from cls().connect(*args, **kws)
+        print(reader, writer)
+        return (yield from asyncio.wait([reader, writer]))
+
 def main():
     #logging.basicConfig(level=logging.DEBUG)
     loop = asyncio.get_event_loop()
     #loop.set_debug(True)
-    for i in range(1): asyncio.async(Producer().connect(loop))
-    loop.run_forever()
+    tasks = [
+        asyncio.async(Producer.connect_and_run_to_completion(loop))
+        for i in range(40)
+    ]
+    loop.run_until_complete(asyncio.wait(tasks))
     loop.close()
     return
 
