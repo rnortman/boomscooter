@@ -24,11 +24,11 @@ MsgHeader = struct.Struct('!IIQ')
 AckMsg = struct.Struct('!IIQQ')
 
 TEST_PAYLOAD = b'hello world!' * 1
-TEST_PAYLOAD = b'!' * 1024 * 1024 * 2
-TEST_PAYLOAD = b'!' * 65536
+TEST_PAYLOAD = b'!' * 1024 * 1024
+#TEST_PAYLOAD = b'!' * 65536
 #TEST_PAYLOAD = b'!' * 16384
 #TEST_PAYLOAD = b'!' * 64
-#TEST_PAYLOAD = b''
+TEST_PAYLOAD = b''
 
 TEST_MSG = MsgHeader.pack(MsgHeader.size + len(TEST_PAYLOAD), 0, 0) + TEST_PAYLOAD
 
@@ -79,7 +79,7 @@ def main():
     #loop.set_debug(True)
     tasks = [
         asyncio.async(Producer.connect_and_run_to_completion(loop))
-        for i in range(40)
+        for i in range(1)
     ]
     loop.run_until_complete(asyncio.wait(tasks))
     loop.close()

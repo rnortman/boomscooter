@@ -255,6 +255,7 @@ class Master:
         self.log = log
         self.read_task = asyncio.async(self.reader(reader, writer))
         #self.write_task = asyncio.async(self.writer(writer))
+        self._txns_in_flight = deque()
         return
 
     @asyncio.coroutine
@@ -266,17 +267,23 @@ class Master:
                 header = yield from reader.readexactly(MsgHeader.size)
                 msg_len, msg_type, refno = MsgHeader.unpack(header)
                 payload = yield from reader.readexactly(msg_len - MsgHeader.size)
-                seqno, msg = yield from self.log.new_msg(payload)
-                writer.write(AckMsg.pack(AckMsg.size, 0, refno, seqno))
-                #print('ack', i, refno, seqno)
+                asyncio.async(self.handle_msg(refno, payload, writer))
         except:
             LOG.exception('Exception occured in Master task')
             writer.close()
             raise
 
     @asyncio.coroutine
-    def writer(self, writer):
-        print('writer')
+    def handle_msg(self, refno, payload, writer):
+        #print('handle_msg')
+        try:
+            seqno, msg = yield from self.log.new_msg(payload)
+            writer.write(AckMsg.pack(AckMsg.size, 0, refno, seqno))
+            #print('ack', i, refno, seqno)
+        except:
+            LOG.exception('Exception occured in Master.handle_msg()')
+            writer.close()
+            raise
         return
 
     @classmethod
