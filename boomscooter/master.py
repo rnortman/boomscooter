@@ -122,7 +122,7 @@ class LogManager:
     ):
         self.name = name
         self.logfile = LogFile(name, updated_cb)
-        self.followers = []
+        self.followers = set()
         self.min_synced_followers = min_synced_followers
         return
 
@@ -135,29 +135,30 @@ class LogManager:
         #print('LogManager.new_msg head')
         seqno, msg = yield from self.logfile.new_msg(payload)
         #print('LogManager.new_msg seqno', seqno)
-        if True:
-            follower_futures = [
-                f.notify_new_msg(seqno, msg)
-                for f in self.followers
-                ]
-            num_synced = 0
-            while num_synced < self.min_synced_followers:
-                assert len(follower_futures) > 0
-                done, follower_futures \
-                    = yield from asyncio.wait(
-                        follower_futures,
-                        return_when=FIRST_COMPLETED)
-                num_synced += sum(
-                    1 if x.result() else 0
-                    for x in done)
+        num_synced = 0
+        all_done = asyncio.Event()
+
+        def _follower_done(result):
+            nonlocal num_synced
+            nonlocal all_done
+            if result:
+                num_synced += 1
+                if num_synced == self.min_synced_followers:
+                    all_done.set()
+
+        for follower in self.followers:
+            follower.notify_new_msg(seqno, msg, _follower_done)
+
+        # TODO: If we don't have enough followers, this will wait
+        # forever.
+        yield from all_done.wait()
         yield from self.logfile.commit_msg(seqno)
-        if True:
-            for f in self.followers:
-                asyncio.async(f.notify_commit_msg(seqno))
+        for f in self.followers:
+            f.notify_commit_msg(seqno)
         return seqno, msg
 
     def add_follower(self, follower):
-        self.followers.append(follower)
+        self.followers.add(follower)
 
 class FollowerHandler:
     def __init__(self, log_manager, reader, writer):
@@ -169,26 +170,20 @@ class FollowerHandler:
         self.log_manager.add_follower(self)
         return
 
-    @asyncio.coroutine
-    def notify_new_msg(self, seqno, msg):
-        try:
-            future = asyncio.Future()
-            txn = (seqno, future)
-            self._txns_in_flight.append(txn)
-            self.writer.write(msg)
-            return (yield from future)
-        except:
-            LOG.exception('Exception writing to follower')
+    def notify_new_msg(self, seqno, msg, callback):
+        # Callbacks used here because this is performance-critical and
+        # Futures and Tasks and coroutines and all that jazz actually
+        # have a fair amount of overhead.
+        txn = (seqno, callback)
+        self._txns_in_flight.append(txn)
+        self.writer.write(msg)
+        return
             
-    @asyncio.coroutine
     def notify_commit_msg(self, seqno):
-        try:
-            #print('commit msg', seqno)
-            self.writer.write(
-                MsgHeader.pack(MsgHeader.size, MSG_FLAGS_COMMITTED, seqno))
-            return
-        except:
-            LOG.exception('Exception writing to follower')
+        #print('commit msg', seqno)
+        self.writer.write(
+            MsgHeader.pack(MsgHeader.size, MSG_FLAGS_COMMITTED, seqno))
+        return
 
     @asyncio.coroutine
     def reader(self, reader, writer):
@@ -202,16 +197,16 @@ class FollowerHandler:
                     return (yield from self.peer_is_crazy(
                         'Sent message of wrong size'))
                 try: 
-                    head_seqno, future = self._txns_in_flight.popleft()
+                    head_seqno, callback = self._txns_in_flight.popleft()
                 except IndexError:
                     return (yield from self.peer_is_crazy(
                         'Tried to ACK but no ACK expected'))
                 if seqno != head_seqno:
-                    future.set_result(False)
+                    callback(False)
                     return (yield from self.peer_is_crazy(
                         'Tried to ACK out of order '
                         'or otherwise unexpected seqno'))
-                future.set_result(True)
+                callback(True)
         except:
             LOG.exception('Exception occured in Follower task')
             writer.close()
@@ -232,7 +227,7 @@ class FollowerHandler:
         return
 
 
-MONITOR_PERIOD = 2
+MONITOR_PERIOD = 5
 
 def start_monitor(loop, log):
     now = loop.time()
